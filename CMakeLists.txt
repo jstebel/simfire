@@ -10,6 +10,7 @@ SET(TARGET_SRC
   ${TARGET}.cc
   
   # You can specify additional files here!
+  fiber.cc
   parameters.cc
   )
 

@@ -30,56 +30,29 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_dgp.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 
-// In this example, we need vector-valued finite elements. The support for
-// these can be found in the following include file:
-#include <deal.II/fe/fe_system.h>
-// We will compose the vector-valued finite elements from regular Q1 elements
-// which can be found here, as usual:
-#include <deal.II/fe/fe_q.h>
-#include <deal.II/fe/fe_dgp.h>
 
-// This again is C++:
+
 #include <fstream>
 #include <iostream>
 
 #include "parameters.hh"
+#include "fiber.hh"
 
 namespace Composite_elasticity_problem
 {
   using namespace dealii;
 
 
-  class FiberSubproblem
-  {
-  public:
-	  FiberSubproblem(const std::string &mesh_file);
-	  ~FiberSubproblem();
 
-	  void attach_matrix_handler(const DoFHandler<3> &dh_);
-
-	  void add_sparsity_pattern(SparsityPattern &pattern);
-
-	  void modify_stiffness_matrix(SparseMatrix<double> &mat, double E_matrix, double E_fiber, double fiber_volume);
-
-  private:
-
-	  Triangulation<1,3> tri;
-
-	  const DoFHandler<3> *dh;
-
-	  std::vector<std::pair<DoFHandler<3>::active_cell_iterator,Point<3> > > node_to_cell;
-
-	  double E_longitudal;
-	  double E_transverse;
-
-
-  };
 
 
 

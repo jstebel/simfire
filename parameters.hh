@@ -17,7 +17,7 @@ namespace Composite_elasticity_problem
 		  double Young_modulus_fiber;
 		  double Poisson_ratio_fiber;
 		  double Fiber_volume_ratio;
-		  int Reinforcement_material_id;
+		  unsigned int Reinforcement_material_id;
 		  bool use_1d_fibers;
 
 		  static void declare_parameters(ParameterHandler &prm);

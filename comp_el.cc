@@ -365,7 +365,10 @@ void ElasticProblem<dim>::assemble_system ()
 	}*/
 
 	if (parameters.use_1d_fibers)
+	{
 		fibers->modify_stiffness_matrix(system_matrix, parameters.Young_modulus_matrix, parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
+		fibers->assemble_fiber_matrix(parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
+	}
 
 
 
@@ -552,6 +555,8 @@ void ElasticProblem<dim>::output_results () const
 	output_stress();
 
 	output_ranges();
+
+	fibers->output_results();
 }
 
 
@@ -606,54 +611,10 @@ void ElasticProblem<dim>::run ()
 
 
 
+template class ElasticProblem<3>;
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-int main (int argc, char **argv)
-{
-  try
-    {
-      dealii::deallog.depth_console (0);
-
-      Composite_elasticity_problem::ElasticProblem<3> elastic_problem(argv[1]);
-      elastic_problem.run ();
-    }
-  catch (std::exception &exc)
-    {
-      std::cerr << std::endl << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Exception on processing: " << std::endl
-                << exc.what() << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-
-      return 1;
-    }
-  catch (...)
-    {
-      std::cerr << std::endl << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Unknown exception!" << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      return 1;
-    }
-
-  return 0;
-}

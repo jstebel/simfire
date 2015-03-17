@@ -7,11 +7,12 @@ SET(TARGET "simfire")
 
 # Declare all source files the target consists of:
 SET(TARGET_SRC
-  ${TARGET}.cc
+  comp_el.cc
   
   # You can specify additional files here!
   fiber.cc
   parameters.cc
+  main.cc
   )
 
 # Usually, you will not need to modify anything beyond this point...

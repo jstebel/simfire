@@ -23,23 +23,47 @@ namespace Composite_elasticity_problem
 
 	  void attach_matrix_handler(const DoFHandler<3> &dh_);
 
-	  void add_sparsity_pattern(SparsityPattern &pattern);
+	  void allocate_constraint_mat();
 
-	  void modify_stiffness_matrix(SparseMatrix<double> &mat, double E_matrix, double E_fiber, double fiber_volume);
+	  void assemble_constraint_mat(SparseMatrix<double> &cm0t, SparseMatrix<double> &cm1t, SparseMatrix<double> &cm0, SparseMatrix<double> &cm1);
 
-	  void assemble_fiber_matrix(double E_fiber, double fiber_volume);
+	  void assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, double E_fiber, double fiber_volume);
 
-	  void output_results() const;
+	  void output_results(const std::string &base_path) const;
+
+	  SparseMatrix<double> &get_fiber_matrix() { return fiber_matrix; }
+
+	  SparseMatrix<double> &get_constraint_matrix(unsigned int part, bool trans=false) { return trans?constraint_mat_t[part]:constraint_mat[part]; }
+
+	  Vector<double> &get_fiber_rhs() { return fiber_rhs; }
+
+	  SparsityPattern &get_sparsity_pattern() { return sp; }
+
+	  SparsityPattern &get_constraint_matrix_sparsity_pattern(unsigned int part, bool trans=false) { return trans?sp_cm_t[part]:sp_cm[part]; }
+
+	  void set_solution(Vector<double> &sol) { fiber_solution = sol; }
+
+	  DoFHandler<1,3> &dof_handler() { return dh; }
+
+	  unsigned int get_constraint_matrix_n_rows();
+
+	  void set_sparsity_pattern(SparsityPattern &sp);
+
+	  void set_constraint_matrix_sparsity_pattern(SparsityPattern&, SparsityPattern&, SparsityPattern&, SparsityPattern&);
 
   private:
 
 	  Triangulation<1,3> tri;
+	  FE_Q<1,3> fe;
+	  DoFHandler<1,3> dh;
 
 	  SparsityPattern sp;
 	  SparseMatrix<double> fiber_matrix;
+	  SparsityPattern sp_cm[2];
+	  SparsityPattern sp_cm_t[2];
+	  SparseMatrix<double> constraint_mat[2];
+	  SparseMatrix<double> constraint_mat_t[2];
 
-	  FE_Q<1,3> fe;
-	  DoFHandler<1,3> dh;
 	  Vector<double> fiber_solution;
 	  Vector<double> fiber_rhs;
 

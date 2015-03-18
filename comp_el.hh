@@ -20,6 +20,9 @@
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/constraint_matrix.h>
+#include <deal.II/lac/block_sparsity_pattern.h>
+#include <deal.II/lac/block_sparse_matrix.h>
+#include <deal.II/lac/block_vector.h>
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -67,7 +70,8 @@ namespace Composite_elasticity_problem
   private:
     void setup_system ();
     Tensor<4,dim> elastic_tensor(unsigned int material_id) const;
-    void assemble_system ();
+    void allocate();
+    void assemble_system(SparseMatrix<double> &system_matrix, Vector<double> &system_rhs);
     void solve ();
     void output_results () const;
     void output_stress() const;
@@ -77,6 +81,10 @@ namespace Composite_elasticity_problem
     DoFHandler<dim>      dof_handler;
 
     FESystem<dim>        fe;
+
+    BlockSparsityPattern bsp;
+    BlockSparseMatrix<double> bm;
+    BlockVector<double> brhs;
 
     SparsityPattern      sparsity_pattern;
     SparseMatrix<double> system_matrix;
@@ -88,6 +96,8 @@ namespace Composite_elasticity_problem
 
     Parameters::AllParameters parameters;
   };
+
+
 
 
 

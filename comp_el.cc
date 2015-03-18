@@ -3,6 +3,7 @@
 #include <deal.II/base/function_lib.h>
 #include <deal.II/base/logstream.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/lac/block_matrix_array.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparse_ilu.h>
 #include <deal.II/lac/sparse_matrix.h>
@@ -10,6 +11,7 @@
 #include <deal.II/lac/sparse_direct.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/constraint_matrix.h>
+#include <deal.II/lac/transpose_matrix.h>
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -95,48 +97,43 @@ template <int dim>
 void ElasticProblem<dim>::setup_system ()
 {
 	dof_handler.distribute_dofs (fe);
-	sparsity_pattern.reinit (dof_handler.n_dofs(),
-			dof_handler.n_dofs(),
-//			dof_handler.max_couplings_between_dofs()
-			200
-			);
-	DoFTools::make_sparsity_pattern (dof_handler, sparsity_pattern);
 
-/*	typename DoFHandler<dim>::active_cell_iterator cell = dof_handler.begin_active(),
-			endc = dof_handler.end();
-	int counter = 0;
-	std::vector<int> dof0, dof1;
-	std::vector<types::global_dof_index> local_dof_indices (fe.dofs_per_cell);
-	for (; cell!=endc; ++cell)
-	{
-		counter++;
-		cell->get_dof_indices (local_dof_indices);
-		if (counter == 200)
-			for (int i=0; i<fe.dofs_per_cell; i++)
-				dof0.push_back(local_dof_indices[i]);
-		if (counter == 100)
-			for (int i=0; i<fe.dofs_per_cell; i++)
-				dof1.push_back(local_dof_indices[i]);
-	}
-	for (int i=0; i<fe.dofs_per_cell; i++)
-	{
-		sparsity_pattern.add(dof0[i], dof0[i]);
-		sparsity_pattern.add(dof0[i], dof1[i]);
-		sparsity_pattern.add(dof1[i], dof0[i]);
-		sparsity_pattern.add(dof1[i], dof1[i]);
-	}*/
 	if (parameters.use_1d_fibers)
 	{
 		fibers->attach_matrix_handler(dof_handler);
-		fibers->add_sparsity_pattern(sparsity_pattern);
+
+		unsigned int n_3d = dof_handler.n_dofs();
+		unsigned int n_1d = fibers->dof_handler().n_dofs();
+		unsigned int m_c = fibers->get_constraint_matrix_n_rows();
+
+		bsp.reinit(3,3);
+		bsp.block(0,0).reinit(n_3d, n_3d, 200);
+		bsp.block(0,1).reinit(n_3d, n_1d, 0);
+		bsp.block(0,2).reinit(n_3d, m_c, 80);
+		bsp.block(1,0).reinit(n_1d, n_3d, 0);
+		bsp.block(1,1).reinit(n_1d, n_1d, 2);
+		bsp.block(1,2).reinit(n_1d, m_c, 4);
+		bsp.block(2,0).reinit(m_c, n_3d, 8);
+		bsp.block(2,1).reinit(m_c, n_1d, 1);
+		bsp.block(2,2).reinit(m_c, m_c, 0);
+		bsp.collect_sizes();
+
+		DoFTools::make_sparsity_pattern (dof_handler, bsp.block(0,0));
+		fibers->set_sparsity_pattern(bsp.block(1,1));
+		fibers->set_constraint_matrix_sparsity_pattern(bsp.block(0,2), bsp.block(1,2), bsp.block(2,0), bsp.block(2,1));
+		bsp.compress();
+
+		bm.reinit(bsp);
+
+		brhs.reinit({n_3d, n_1d, m_c});
 	}
 
-	sparsity_pattern.compress();
+//	sparsity_pattern.compress();
 
-	system_matrix.reinit (sparsity_pattern);
-
+//	system_matrix.reinit (sparsity_pattern);
+//
 	solution.reinit (dof_handler.n_dofs());
-	system_rhs.reinit (dof_handler.n_dofs());
+//	system_rhs.reinit (dof_handler.n_dofs());
 }
 
 template<int dim>
@@ -179,7 +176,7 @@ Tensor<4,dim> ElasticProblem<dim>::elastic_tensor(unsigned int material_id) cons
 
 
 template <int dim>
-void ElasticProblem<dim>::assemble_system ()
+void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, Vector<double> &system_rhs)
 {
 	QGauss<dim>  quadrature_formula(2);
 
@@ -366,8 +363,7 @@ void ElasticProblem<dim>::assemble_system ()
 
 	if (parameters.use_1d_fibers)
 	{
-		fibers->modify_stiffness_matrix(system_matrix, parameters.Young_modulus_matrix, parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
-		fibers->assemble_fiber_matrix(parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
+//		fibers->modify_stiffness_matrix(system_matrix, parameters.Young_modulus_matrix, parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
 	}
 
 
@@ -556,7 +552,7 @@ void ElasticProblem<dim>::output_results () const
 
 	output_ranges();
 
-	fibers->output_results();
+	fibers->output_results(parameters.output_file_base);
 }
 
 
@@ -565,10 +561,18 @@ void ElasticProblem<dim>::solve ()
 {
   SparseDirectUMFPACK umf;
 
-  umf.solve (system_matrix, system_rhs);
+  if (parameters.use_1d_fibers)
+  {
+	  umf.solve(bm, brhs);
 
-  solution = system_rhs;
-
+	  solution = brhs.block(0);
+	  fibers->set_solution(brhs.block(1));
+  }
+  else
+  {
+	  umf.solve(system_matrix, system_rhs);
+	  solution = system_rhs;
+  }
 }
 
 
@@ -601,8 +605,16 @@ void ElasticProblem<dim>::run ()
 			  << dof_handler.n_dofs()
 			  << "\n\n";
 
-	assemble_system ();
-	solve ();
+	assemble_system(bm.block(0,0), brhs.block(0));
+
+	if (parameters.use_1d_fibers)
+	{
+		fibers->assemble_fiber_matrix(bm.block(1,1), parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
+		fibers->assemble_constraint_mat(bm.block(0,2), bm.block(1,2), bm.block(2,0), bm.block(2,1));
+	}
+
+	solve();
+
 	output_results ();
 }
 

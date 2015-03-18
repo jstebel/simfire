@@ -3,6 +3,7 @@
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/dofs/dof_accessor.h>
@@ -69,128 +70,157 @@ void FiberSubproblem::attach_matrix_handler(const DoFHandler<3> &dh_)
 	dh_3d = &dh_;
 
 	MappingQ1<3> map;
-
 	for (auto node : tri.get_vertices())
+	{
 		node_to_cell.push_back(GridTools::find_active_cell_around_point(map, *dh_3d, node));
-
-}
-
-
-void FiberSubproblem::add_sparsity_pattern(SparsityPattern &pattern)
-{
-	const FiniteElement<3> *fe = &dh_3d->get_fe();
-	const int dofs_per_cell = fe->dofs_per_cell;
-
-	std::vector<types::global_dof_index> dof_indices0 (dofs_per_cell),
-			dof_indices1 (dofs_per_cell);
-
-	Triangulation<1,3>::active_cell_iterator line = tri.begin_active(),
-			end_line = tri.end();
-	for (; line!=end_line; ++line)
-	{
-		auto cell0 = node_to_cell[line->vertex_index(0)].first;
-		auto cell1 = node_to_cell[line->vertex_index(1)].first;
-
-		cell0->get_dof_indices(dof_indices0);
-		cell1->get_dof_indices(dof_indices1);
-
-		for (int i=0; i<dofs_per_cell; i++)
-			for (int j=0; j<dofs_per_cell; j++)
-				if (fe->system_to_component_index(i).first == fe->system_to_component_index(j).first)
-				{
-					pattern.add(dof_indices0[i],dof_indices0[i]);
-					pattern.add(dof_indices0[i],dof_indices1[j]);
-					pattern.add(dof_indices1[j],dof_indices0[i]);
-					pattern.add(dof_indices1[j],dof_indices1[j]);
-				}
 	}
-
 }
 
-void FiberSubproblem::modify_stiffness_matrix(SparseMatrix<double> &mat, double E_matrix, double E_fiber, double fiber_volume)
+unsigned int FiberSubproblem::get_constraint_matrix_n_rows()
 {
-	const FiniteElement<3> *fe = &dh_3d->get_fe();
-//	const FiniteElement<3> *fe_base = &fe->base_element(0);
-	const int dofs_per_cell = fe->dofs_per_cell;
+	return 3*tri.n_vertices();
+}
 
-	double shape_sum0, shape_sum1;
-	std::vector<double> shape_weight0(dofs_per_cell), shape_weight1(dofs_per_cell);
+void FiberSubproblem::set_sparsity_pattern(SparsityPattern &sp)
+{
+	CompressedSparsityPattern c_sparsity(dh.n_dofs());
+	DoFTools::make_sparsity_pattern(dh, c_sparsity);
+	sp.copy_from(c_sparsity);
+}
 
-	std::vector<types::global_dof_index> dof_indices0 (dofs_per_cell),
-			dof_indices1 (dofs_per_cell);
+void FiberSubproblem::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp0t, SparsityPattern &sp1t, SparsityPattern &sp0, SparsityPattern &sp1)
+{
+	const FiniteElement<3> *fe_3d = &dh_3d->get_fe();
+	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
+	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
 
-	Triangulation<1,3>::active_cell_iterator line = tri.begin_active(),
-			end_line = tri.end();
+	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
+			end_line = dh.end();
 	for (; line!=end_line; ++line)
 	{
-		auto cell0 = node_to_cell[line->vertex_index(0)].first;
-		auto point0 = node_to_cell[line->vertex_index(0)].second;
-
-		auto cell1 = node_to_cell[line->vertex_index(1)].first;
-		auto point1 = node_to_cell[line->vertex_index(1)].second;
-
-		cell0->get_dof_indices(dof_indices0);
-		cell1->get_dof_indices(dof_indices1);
-
-		Quadrature<3> q0(point0);
-		FEValues<3> fe_values0(*fe, q0, update_values);
-		fe_values0.reinit(cell0);
-		shape_sum0 = 0;
-		for (int i=0; i<dofs_per_cell; i++)
+		// allocate space for 3d dofs adajcent to line vertices
+		for (unsigned int vid=0; vid<2; vid++)
 		{
-			shape_weight0[i] = fe_values0.shape_value(i,0);
-			if (fe->system_to_component_index(i).first == 0)
-				shape_sum0 += shape_weight0[i];
-		}
-		for (int i=0; i<dofs_per_cell; i++)
-			shape_weight0[i] /= shape_sum0;
-
-		Quadrature<3> q1(point1);
-		FEValues<3> fe_values1(*fe, q1, update_values);
-		fe_values1.reinit(cell1);
-		shape_sum1 = 0;
-		for (int i=0; i<dofs_per_cell; i++)
-		{
-			shape_weight1[i] = fe_values1.shape_value(i,0);
-			if (fe->system_to_component_index(i).first == 0)
-				shape_sum1 += shape_weight1[i];
-		}
-		for (int i=0; i<dofs_per_cell; i++)
-			shape_weight1[i] /= shape_sum1;
-
-		Point<3> tangent = (line->vertex(1)-line->vertex(0));
-		double dx = tangent.norm();
-		tangent /= dx;
-
-		for (int i=0; i<dofs_per_cell; i++)
-		{
-			int ci = fe->system_to_component_index(i).first;
-			int bi = fe->system_to_component_index(i).second;
-
-			const double stiff = fiber_volume*(E_fiber - E_matrix)*fabs(tangent[ci])/dx;
-
-			for (int j=0; j<dofs_per_cell; j++)
+			auto cell = node_to_cell[line->vertex_index(vid)].first;
+			cell->get_dof_indices(dof_indices_3d);
+			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-				int cj = fe->system_to_component_index(j).first;
-				int bj = fe->system_to_component_index(j).second;
-
-				if (ci != cj) continue;
-
-				mat.add(dof_indices0[i], dof_indices0[i],  shape_weight0[bi]*shape_weight0[bi]*stiff);
-				mat.add(dof_indices0[i], dof_indices1[j], -shape_weight0[bi]*shape_weight1[bj]*stiff);
-				mat.add(dof_indices1[j], dof_indices0[i], -shape_weight1[bj]*shape_weight0[bi]*stiff);
-				mat.add(dof_indices1[j], dof_indices1[j],  shape_weight1[bj]*shape_weight1[bj]*stiff);
+				sp0.add(3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first, dof_indices_3d[i]);
+				sp0t.add(dof_indices_3d[i], 3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first);
 			}
 		}
 
+		// allocate space for 1d dofs
+		line->get_dof_indices(dof_indices);
+		for (unsigned int i=0; i<fe.dofs_per_cell; i++)
+		{
+			sp1.add(3*line->vertex_index(i),   dof_indices[i]);
+			sp1.add(3*line->vertex_index(i)+1, dof_indices[i]);
+			sp1.add(3*line->vertex_index(i)+2, dof_indices[i]);
+			sp1t.add(dof_indices[i], 3*line->vertex_index(i));
+			sp1t.add(dof_indices[i], 3*line->vertex_index(i)+1);
+			sp1t.add(dof_indices[i], 3*line->vertex_index(i)+2);
+		}
+	}
+}
 
+void FiberSubproblem::allocate_constraint_mat()
+{
+	const FiniteElement<3> *fe_3d = &dh_3d->get_fe();
+	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
+	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
 
+	// create sparsity patterns
+	sp_cm[0].reinit(3*tri.n_vertices(), dh_3d->n_dofs(), 8);
+	sp_cm[1].reinit(3*tri.n_vertices(), dh.n_dofs(), 1);
+	sp_cm_t[0].reinit(dh_3d->n_dofs(), 3*tri.n_vertices(), 8);
+	sp_cm_t[1].reinit(dh.n_dofs(), 3*tri.n_vertices(), 4);
+
+	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
+			end_line = dh.end();
+	for (; line!=end_line; ++line)
+	{
+		// allocate space for 3d dofs adajcent to line vertices
+		for (unsigned int vid=0; vid<2; vid++)
+		{
+			auto cell = node_to_cell[line->vertex_index(vid)].first;
+			cell->get_dof_indices(dof_indices_3d);
+			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
+			{
+				sp_cm[0].add(3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first, dof_indices_3d[i]);
+				sp_cm_t[0].add(dof_indices_3d[i], 3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first);
+			}
+		}
+
+		// allocate space for 1d dofs
+		line->get_dof_indices(dof_indices);
+		for (unsigned int i=0; i<fe.dofs_per_cell; i++)
+		{
+			sp_cm[1].add(3*line->vertex_index(i),   dof_indices[i]);
+			sp_cm[1].add(3*line->vertex_index(i)+1, dof_indices[i]);
+			sp_cm[1].add(3*line->vertex_index(i)+2, dof_indices[i]);
+			sp_cm_t[1].add(dof_indices[i], 3*line->vertex_index(i));
+			sp_cm_t[1].add(dof_indices[i], 3*line->vertex_index(i)+1);
+			sp_cm_t[1].add(dof_indices[i], 3*line->vertex_index(i)+2);
+		}
+	}
+	sp_cm[0].compress();
+	sp_cm[1].compress();
+	sp_cm_t[0].compress();
+	sp_cm_t[1].compress();
+
+	constraint_mat[0].reinit(sp_cm[0]);
+	constraint_mat[1].reinit(sp_cm[1]);
+	constraint_mat_t[0].reinit(sp_cm_t[0]);
+	constraint_mat_t[1].reinit(sp_cm_t[1]);
+}
+
+void FiberSubproblem::assemble_constraint_mat(SparseMatrix<double> &cm0t, SparseMatrix<double> &cm1t, SparseMatrix<double> &cm0, SparseMatrix<double> &cm1)
+{
+	const FiniteElement<3> *fe_3d = &dh_3d->get_fe();
+	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
+	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
+
+	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
+			end_line = dh.end();
+	for (; line!=end_line; ++line)
+	{
+		line->get_dof_indices(dof_indices);
+		Point<3> tangent = line->vertex(1)-line->vertex(0);
+		tangent /= tangent.norm();
+
+		for (unsigned int vid=0; vid<2; vid++)
+		{
+			auto cell = node_to_cell[line->vertex_index(vid)].first;
+			Quadrature<3> q(node_to_cell[line->vertex_index(vid)].second);
+			FEValues<3> fe_values(*fe_3d, q, update_values);
+			FullMatrix<double> cell_matrix(dofs_per_cell_3d, dofs_per_cell_3d);
+			
+			fe_values.reinit(cell);
+			cell->get_dof_indices(dof_indices_3d);
+			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
+			{
+				cm0.add(3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first, dof_indices_3d[i],
+						fe_values.shape_value(i,0));
+				cm0t.add(dof_indices_3d[i], 3*line->vertex_index(vid)+fe_3d->system_to_component_index(i).first,
+						fe_values.shape_value(i,0));
+			}
+
+			cm1.add(3*line->vertex_index(vid),   dof_indices[vid], -tangent[0]);
+			cm1.add(3*line->vertex_index(vid)+1, dof_indices[vid], -tangent[1]);
+			cm1.add(3*line->vertex_index(vid)+2, dof_indices[vid], -tangent[2]);
+
+			cm1t.add(dof_indices[vid], 3*line->vertex_index(vid),   -tangent[0]);
+			cm1t.add(dof_indices[vid], 3*line->vertex_index(vid)+1, -tangent[1]);
+			cm1t.add(dof_indices[vid], 3*line->vertex_index(vid)+2, -tangent[2]);
+		}
 	}
 }
 
 
 
-void FiberSubproblem::assemble_fiber_matrix(double E_fiber, double fiber_volume)
+
+void FiberSubproblem::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, double E_fiber, double fiber_volume)
 {
 	QGauss<1> quadrature_formula(2);
 	FEValues<1,3> fe_values (fe, quadrature_formula, update_values | update_gradients | update_JxW_values);
@@ -215,9 +245,9 @@ void FiberSubproblem::assemble_fiber_matrix(double E_fiber, double fiber_volume)
 							fe_values.shape_grad (j, q_index) *
 							fe_values.JxW (q_index));
 
-			 for (unsigned int i=0; i<dofs_per_cell; ++i)
-				 cell_rhs(i) += (fe_values.shape_value (i, q_index) *
-						 1 * fe_values.JxW (q_index));
+//			 for (unsigned int i=0; i<dofs_per_cell; ++i)
+//				 cell_rhs(i) += (fe_values.shape_value (i, q_index) *
+//						 1 * fe_values.JxW (q_index));
 		}
 
 		cell->get_dof_indices (local_dof_indices);
@@ -225,39 +255,81 @@ void FiberSubproblem::assemble_fiber_matrix(double E_fiber, double fiber_volume)
 			for (unsigned int j=0; j<dofs_per_cell; ++j)
 				fiber_matrix.add (local_dof_indices[i], local_dof_indices[j], cell_matrix(i,j));
 
-		for (unsigned int i=0; i<dofs_per_cell; ++i)
-			fiber_rhs(local_dof_indices[i]) += cell_rhs(i);
+//		for (unsigned int i=0; i<dofs_per_cell; ++i)
+//			fiber_rhs(local_dof_indices[i]) += cell_rhs(i);
 	}
 
-	std::map<types::global_dof_index,double> boundary_values;
-	VectorTools::interpolate_boundary_values (dh,
-			5,
-			ZeroFunction<3>(),
-			boundary_values);
-	MatrixTools::apply_boundary_values (boundary_values,
-			fiber_matrix,
-			fiber_solution,
-			fiber_rhs);
+//	std::map<types::global_dof_index,double> boundary_values;
+//	VectorTools::interpolate_boundary_values (dh,
+//			5,
+//			ZeroFunction<3>(),
+//			boundary_values);
+//	MatrixTools::apply_boundary_values (boundary_values,
+//			fiber_matrix,
+//			fiber_solution,
+//			fiber_rhs);
+//
+//	fiber_matrix.set(0,0,0);
 
-	fiber_matrix.set(0,0,0);
-
-	SparseDirectUMFPACK umf;
-	umf.solve (fiber_matrix, fiber_rhs);
-	fiber_solution = fiber_rhs;
 }
 
 
 
 
 
-void FiberSubproblem::output_results() const
+void FiberSubproblem::output_results(const std::string &base_path) const
 {
-	std::string filename = "fiber-displacement.vtk";
+	std::string filename = base_path + "-fiber-displacement.vtk";
 	std::ofstream output (filename.c_str());
-
+	FESystem<1,3> fe_disp(FE_Q<1,3>(1),3);
+	DoFHandler<1,3> dh_disp(tri);
+	dh_disp.distribute_dofs(fe_disp);
 	DataOut<1,DoFHandler<1,3> > data_out;
-	data_out.attach_dof_handler (dh);
+	data_out.attach_dof_handler(dh);
+
+	Vector<double> dx(dh.n_dofs()), dy(dh.n_dofs()), dz(dh.n_dofs());
+	std::vector<unsigned int> count(dh.n_dofs(), 0.);
+	const unsigned int dofs_per_cell = fe.dofs_per_cell;
+	std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+	DoFHandler<1,3>::active_cell_iterator cell = dh.begin_active(),
+			end_cell = dh.end();
+	for (; cell!=end_cell; ++cell)
+	{
+		cell->get_dof_indices (local_dof_indices);
+		Point<3> tangent = cell->vertex(1) - cell->vertex(0);
+		tangent /= tangent.norm();
+		for (int vid=0; vid<2; vid++)
+		{
+			dx[local_dof_indices[vid]] += tangent[0]*fiber_solution[local_dof_indices[vid]];
+			dy[local_dof_indices[vid]] += tangent[1]*fiber_solution[local_dof_indices[vid]];
+			dz[local_dof_indices[vid]] += tangent[2]*fiber_solution[local_dof_indices[vid]];
+			count[local_dof_indices[vid]]++;
+		}
+	}
+	for (unsigned int i=0; i<dx.size(); i++)
+	{
+		dx[i] /= count[i];
+		dy[i] /= count[i];
+		dz[i] /= count[i];
+	}
+
+//	std::vector<std::string> solution_names;
+//	std::vector<DataComponentInterpretation::DataComponentInterpretation> interpretation;
+//	for (int i=0; i<3; i++)
+//	{
+//		solution_names.push_back ("displacement");
+//		interpretation.push_back (DataComponentInterpretation::component_is_part_of_vector);
+//	}
+
+//	data_out.add_data_vector (displacement,
+//			solution_names,
+//			DataOut<1, DoFHandler<1,3> >::type_automatic,
+//			interpretation);
+
 	data_out.add_data_vector (fiber_solution, "solution");
+	data_out.add_data_vector (dx, "dx");
+	data_out.add_data_vector (dy, "dy");
+	data_out.add_data_vector (dz, "dz");
 	data_out.build_patches ();
 	data_out.write_vtk (output);
 }

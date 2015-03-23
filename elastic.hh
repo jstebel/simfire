@@ -1,5 +1,5 @@
-#ifndef COMP_EL_HH
-#define COMP_EL_HH
+#ifndef ELASTIC_HH
+#define ELASTIC_HH
 // The material parameters for matrix (PU) are taken from
 // http://www.iplex.com.au/iplex.php?page=lib&lib=1&sec=2
 // The values for carbon fibres are taken from
@@ -48,7 +48,7 @@
 #include <iostream>
 
 #include "parameters.hh"
-#include "fiber.hh"
+#include "elastic.hh"
 
 namespace Composite_elasticity_problem
 {
@@ -59,21 +59,24 @@ namespace Composite_elasticity_problem
 
 
 
+
   template <int dim>
   class ElasticProblem
   {
   public:
-    ElasticProblem (const std::string &input_file);
+    ElasticProblem (const Parameters::AllParameters &params);
     ~ElasticProblem ();
-    void run ();
+
+    void setup_system ();
+    void assemble_system(SparseMatrix<double> &system_matrix, Vector<double> &system_rhs);
+    void output_results () const;
+
+    DoFHandler<3> &get_dof_handler() { return dof_handler; }
+    void set_solution(Vector<double> &sol) { solution = sol; }
 
   private:
-    void setup_system ();
     Tensor<4,dim> elastic_tensor(unsigned int material_id) const;
     void allocate();
-    void assemble_system(SparseMatrix<double> &system_matrix, Vector<double> &system_rhs);
-    void solve ();
-    void output_results () const;
     void output_stress() const;
     void output_ranges() const;
 
@@ -82,24 +85,15 @@ namespace Composite_elasticity_problem
 
     FESystem<dim>        fe;
 
-    BlockSparsityPattern bsp;
-    BlockSparseMatrix<double> bm;
-    BlockVector<double> brhs;
-
     SparsityPattern      sparsity_pattern;
     SparseMatrix<double> system_matrix;
 
     Vector<double>       solution;
     Vector<double>       system_rhs;
 
-    FiberSubproblem *fibers;
 
     Parameters::AllParameters parameters;
   };
-
-
-
-
 
 
 

@@ -29,23 +29,16 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 
-// In this example, we need vector-valued finite elements. The support for
-// these can be found in the following include file:
 #include <deal.II/fe/fe_system.h>
-// We will compose the vector-valued finite elements from regular Q1 elements
-// which can be found here, as usual:
 #include <deal.II/fe/fe_q.h>
 
-// This again is C++:
 #include <fstream>
 #include <iostream>
 #include <limits>
 
-#include "comp_el.hh"
+#include "elastic.hh"
 
-// The last step is as in previous programs. In particular, just like in
-// step-7, we pack everything that's specific to this program into a namespace
-// of its own.
+
 using namespace Composite_elasticity_problem;
 using namespace dealii;
 
@@ -56,84 +49,44 @@ using namespace dealii;
 
 
 template <int dim>
-ElasticProblem<dim>::ElasticProblem (const std::string &input_file)
+ElasticProblem<dim>::ElasticProblem(const Parameters::AllParameters &params)
 :
 dof_handler (triangulation),
 fe (FE_Q<dim>(1), dim),
-fibers(nullptr),
-parameters(input_file)
-{}
-// In fact, the <code>FESystem</code> class has several more constructors
-// which can perform more complex operations than just stacking together
-// several scalar finite elements of the same type into one; we will get to
-// know these possibilities in later examples.
+parameters(params)
+{
+	GridIn<dim> grid_in;
+	grid_in.attach_triangulation(triangulation);
+
+	std::ifstream input_file(parameters.mesh_file);
+	Assert (input_file, ExcFileNotOpen(parameters.mesh_file.c_str()));
+
+	grid_in.read_msh(input_file);
+
+	std::cout << "   Number of active cells:       "
+			<< triangulation.n_active_cells()
+			<< std::endl;
+
+	dof_handler.distribute_dofs(fe);
+}
 
 
 
-// @sect4{ElasticProblem::~ElasticProblem}
-
-// The destructor, on the other hand, is exactly as in step-6:
 template <int dim>
 ElasticProblem<dim>::~ElasticProblem ()
 {
 	dof_handler.clear ();
-	if (fibers != nullptr) delete fibers;
 }
 
 
-// @sect4{ElasticProblem::setup_system}
-
-// Setting up the system of equations is identical to the function used in
-// the step-6 example. The <code>DoFHandler</code> class and all other
-// classes used here are fully aware that the finite element we want to use
-// is vector-valued, and take care of the vector-valuedness of the finite
-// element themselves. (In fact, they do not, but this does not need to
-// bother you: since they only need to know how many degrees of freedom
-// there are per vertex, line and cell, and they do not ask what they
-// represent, i.e. whether the finite element under consideration is
-// vector-valued or whether it is, for example, a scalar Hermite element
-// with several degrees of freedom on each vertex).
 template <int dim>
 void ElasticProblem<dim>::setup_system ()
 {
-	dof_handler.distribute_dofs (fe);
-
-	if (parameters.use_1d_fibers)
-	{
-		fibers->attach_matrix_handler(dof_handler);
-
-		unsigned int n_3d = dof_handler.n_dofs();
-		unsigned int n_1d = fibers->dof_handler().n_dofs();
-		unsigned int m_c = fibers->get_constraint_matrix_n_rows();
-
-		bsp.reinit(3,3);
-		bsp.block(0,0).reinit(n_3d, n_3d, 200);
-		bsp.block(0,1).reinit(n_3d, n_1d, 0);
-		bsp.block(0,2).reinit(n_3d, m_c, 80);
-		bsp.block(1,0).reinit(n_1d, n_3d, 0);
-		bsp.block(1,1).reinit(n_1d, n_1d, 2);
-		bsp.block(1,2).reinit(n_1d, m_c, 4);
-		bsp.block(2,0).reinit(m_c, n_3d, 8);
-		bsp.block(2,1).reinit(m_c, n_1d, 1);
-		bsp.block(2,2).reinit(m_c, m_c, 0);
-		bsp.collect_sizes();
-
-		DoFTools::make_sparsity_pattern (dof_handler, bsp.block(0,0));
-		fibers->set_sparsity_pattern(bsp.block(1,1));
-		fibers->set_constraint_matrix_sparsity_pattern(bsp.block(0,2), bsp.block(1,2), bsp.block(2,0), bsp.block(2,1));
-		bsp.compress();
-
-		bm.reinit(bsp);
-
-		brhs.reinit({n_3d, n_1d, m_c});
-	}
-
-//	sparsity_pattern.compress();
-
-//	system_matrix.reinit (sparsity_pattern);
-//
 	solution.reinit (dof_handler.n_dofs());
-//	system_rhs.reinit (dof_handler.n_dofs());
+
+	std::cout << "   Number of degrees of freedom: "
+			  << dof_handler.n_dofs()
+			  << "\n\n";
 }
 
 template<int dim>
@@ -202,9 +155,6 @@ void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, V
 	std::vector<double>     mu_values (n_q_points);
 
 	Tensor<4,dim> el_tensor;
-
-/*	unsigned int counter=0;
-	std::vector<int> dof0, dof1;*/
 
 	std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim)),
 			trac_values (quadrature_face.size(), Vector<double>(dim));
@@ -341,29 +291,6 @@ void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, V
 
 			system_rhs(local_dof_indices[i]) += cell_rhs(i);
 		}
-
-/*		counter++;
-		if (counter == 200)
-			for (int i=0; i<fe.dofs_per_cell; i++)
-				dof0.push_back(local_dof_indices[i]);
-		if (counter == 100)
-			for (int i=0; i<fe.dofs_per_cell; i++)
-				dof1.push_back(local_dof_indices[i]);*/
-
-	}
-
-/*	double stiff = 1e11;
-	for (int i=0; i<fe.dofs_per_cell; i++)
-	{
-		system_matrix.add(dof0[i], dof0[i], stiff);
-		system_matrix.add(dof0[i], dof1[i], -stiff);
-		system_matrix.add(dof1[i], dof0[i], -stiff);
-		system_matrix.add(dof1[i], dof1[i], stiff);
-	}*/
-
-	if (parameters.use_1d_fibers)
-	{
-//		fibers->modify_stiffness_matrix(system_matrix, parameters.Young_modulus_matrix, parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
 	}
 
 
@@ -551,72 +478,13 @@ void ElasticProblem<dim>::output_results () const
 	output_stress();
 
 	output_ranges();
-
-	fibers->output_results(parameters.output_file_base);
-}
-
-
-template <int dim>
-void ElasticProblem<dim>::solve ()
-{
-  SparseDirectUMFPACK umf;
-
-  if (parameters.use_1d_fibers)
-  {
-	  umf.solve(bm, brhs);
-
-	  solution = brhs.block(0);
-	  fibers->set_solution(brhs.block(1));
-  }
-  else
-  {
-	  umf.solve(system_matrix, system_rhs);
-	  solution = system_rhs;
-  }
 }
 
 
 
 
 
-template <int dim>
-void ElasticProblem<dim>::run ()
-{
-	GridIn<dim> grid_in;
-	grid_in.attach_triangulation(triangulation);
 
-	std::ifstream input_file(parameters.mesh_file);
-	Assert (input_file, ExcFileNotOpen(parameters.mesh_file.c_str()));
-
-	grid_in.read_msh(input_file);
-
-	std::cout << "   Number of active cells:       "
-			<< triangulation.n_active_cells()
-			<< std::endl;
-
-	if (parameters.use_1d_fibers)
-	{
-		fibers = new FiberSubproblem(parameters.mesh1d_file);
-	}
-
-	setup_system ();
-
-	std::cout << "   Number of degrees of freedom: "
-			  << dof_handler.n_dofs()
-			  << "\n\n";
-
-	assemble_system(bm.block(0,0), brhs.block(0));
-
-	if (parameters.use_1d_fibers)
-	{
-		fibers->assemble_fiber_matrix(bm.block(1,1), parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
-		fibers->assemble_constraint_mat(bm.block(0,2), bm.block(1,2), bm.block(2,0), bm.block(2,1));
-	}
-
-	solve();
-
-	output_results ();
-}
 
 
 

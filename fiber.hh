@@ -23,8 +23,6 @@ namespace Composite_elasticity_problem
 
 	  void attach_matrix_handler(const DoFHandler<3> &dh_);
 
-	  void allocate_constraint_mat();
-
 	  void assemble_constraint_mat(SparseMatrix<double> &cm0t, SparseMatrix<double> &cm1t, SparseMatrix<double> &cm0, SparseMatrix<double> &cm1);
 
 	  void assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, double E_fiber, double fiber_volume);
@@ -34,8 +32,6 @@ namespace Composite_elasticity_problem
 	  SparseMatrix<double> &get_fiber_matrix() { return fiber_matrix; }
 
 	  SparseMatrix<double> &get_constraint_matrix(unsigned int part, bool trans=false) { return trans?constraint_mat_t[part]:constraint_mat[part]; }
-
-	  Vector<double> &get_fiber_rhs() { return fiber_rhs; }
 
 	  SparsityPattern &get_sparsity_pattern() { return sp; }
 

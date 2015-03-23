@@ -1,5 +1,5 @@
 #include <iostream>
-#include "comp_el.hh"
+#include "coupled.hh"
 
 
 
@@ -17,8 +17,8 @@ int main (int argc, char **argv)
     {
       dealii::deallog.depth_console (0);
 
-      Composite_elasticity_problem::ElasticProblem<3> elastic_problem(argv[1]);
-      elastic_problem.run ();
+      Composite_elasticity_problem::CoupledProblem problem(argv[1]);
+      problem.run ();
     }
   catch (std::exception &exc)
     {

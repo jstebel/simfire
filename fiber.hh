@@ -27,7 +27,7 @@ namespace Composite_elasticity_problem
 
 	  void assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, double E_fiber, double fiber_volume);
 
-	  void output_results(const std::string &base_path) const;
+	  void output_results(const std::string &base_path, const Vector<double> &solution_3d) const;
 
 	  SparseMatrix<double> &get_fiber_matrix() { return fiber_matrix; }
 

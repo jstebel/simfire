@@ -77,7 +77,7 @@ void CoupledProblem::setup_system()
 		bsp.block(1,0).reinit(n_1d, n_3d, 0);
 		bsp.block(1,1).reinit(n_1d, n_1d, 2);
 		bsp.block(1,2).reinit(n_1d, m_c, 8);
-		bsp.block(2,0).reinit(m_c, n_3d, 16);
+		bsp.block(2,0).reinit(m_c, n_3d, 64);
 		bsp.block(2,1).reinit(m_c, n_1d, 2);
 		bsp.block(2,2).reinit(m_c, m_c, 0);
 		bsp.collect_sizes();
@@ -138,7 +138,7 @@ void CoupledProblem::run ()
 	solve();
 
 	elastic->output_results ();
-	fibers->output_results(parameters.output_file_base);
+	fibers->output_results(parameters.output_file_base, elastic->get_solution());
 }
 
 

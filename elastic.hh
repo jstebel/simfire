@@ -73,6 +73,7 @@ namespace Composite_elasticity_problem
 
     DoFHandler<3> &get_dof_handler() { return dof_handler; }
     void set_solution(Vector<double> &sol) { solution = sol; }
+    const Vector<double> &get_solution() { return solution; }
 
   private:
     Tensor<4,dim> elastic_tensor(unsigned int material_id) const;

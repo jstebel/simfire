@@ -71,7 +71,7 @@ void FiberSubproblem::attach_matrix_handler(const DoFHandler<3> &dh_)
 
 unsigned int FiberSubproblem::get_constraint_matrix_n_rows()
 {
-	return 3*tri.n_lines();
+	return 1*tri.n_lines();
 }
 
 void FiberSubproblem::set_sparsity_pattern(SparsityPattern &sp)
@@ -98,8 +98,8 @@ void FiberSubproblem::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 			cell->get_dof_indices(dof_indices_3d);
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-				sp0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i]);
-				sp0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first);
+				sp0.add(id, dof_indices_3d[i]);
+				sp0t.add(dof_indices_3d[i], id);
 			}
 		}
 
@@ -107,12 +107,8 @@ void FiberSubproblem::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 		line->get_dof_indices(dof_indices);
 		for (unsigned int i=0; i<fe.dofs_per_cell; i++)
 		{
-			sp1.add(3*id,   dof_indices[i]);
-			sp1.add(3*id+1, dof_indices[i]);
-			sp1.add(3*id+2, dof_indices[i]);
-			sp1t.add(dof_indices[i], 3*id);
-			sp1t.add(dof_indices[i], 3*id+1);
-			sp1t.add(dof_indices[i], 3*id+2);
+			sp1.add(id,   dof_indices[i]);
+			sp1t.add(dof_indices[i], id);
 		}
 	}
 }
@@ -143,19 +139,14 @@ void FiberSubproblem::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 			cell->get_dof_indices(dof_indices_3d);
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-				cm0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i],
+				cm0.add(id, dof_indices_3d[i],
 						fe_values.shape_value(i,0)*tangent[fe_3d->system_to_component_index(i).first]);
-				cm0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first,
+				cm0t.add(dof_indices_3d[i], id,
 						fe_values.shape_value(i,0)*tangent[fe_3d->system_to_component_index(i).first]);
 			}
 
-			cm1.add(3*id,   dof_indices[vid], -tangent[0]);
-			cm1.add(3*id+1, dof_indices[vid], -tangent[1]);
-			cm1.add(3*id+2, dof_indices[vid], -tangent[2]);
-
-			cm1t.add(dof_indices[vid], 3*id,   -tangent[0]);
-			cm1t.add(dof_indices[vid], 3*id+1, -tangent[1]);
-			cm1t.add(dof_indices[vid], 3*id+2, -tangent[2]);
+			cm1.add(id, dof_indices[vid], -1);
+			cm1t.add(dof_indices[vid], id, -1);
 		}
 	}
 }
@@ -220,20 +211,24 @@ void FiberSubproblem::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 
 
 
-void FiberSubproblem::output_results(const std::string &base_path) const
+void FiberSubproblem::output_results(const std::string &base_path, const Vector<double> &solution_3d) const
 {
 	std::string filename = base_path + "-fiber-displacement.vtk";
 	std::ofstream output (filename.c_str());
+
+	const FiniteElement<3> *fe_3d = &dh_3d->get_fe();
+	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
+	const unsigned int dofs_per_cell = fe.dofs_per_cell;
+	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), local_dof_indices(dofs_per_cell);
 	FESystem<1,3> fe_disp(FE_Q<1,3>(1),3);
 	DoFHandler<1,3> dh_disp(tri);
 	dh_disp.distribute_dofs(fe_disp);
 	DataOut<1,DoFHandler<1,3> > data_out;
-	data_out.attach_dof_handler(dh);
-
 	Vector<double> dx(dh.n_dofs()), dy(dh.n_dofs()), dz(dh.n_dofs());
 	std::vector<unsigned int> count(dh.n_dofs(), 0.);
-	const unsigned int dofs_per_cell = fe.dofs_per_cell;
-	std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+
+	data_out.attach_dof_handler(dh);
+
 	DoFHandler<1,3>::active_cell_iterator cell = dh.begin_active(),
 			end_cell = dh.end();
 	for (; cell!=end_cell; ++cell)
@@ -243,6 +238,24 @@ void FiberSubproblem::output_results(const std::string &base_path) const
 		tangent /= tangent.norm();
 		for (int vid=0; vid<2; vid++)
 		{
+			auto cell3d = node_to_cell[cell->vertex_index(vid)].first;
+			Quadrature<3> q(node_to_cell[cell->vertex_index(vid)].second);
+			FEValues<3> fe_values(*fe_3d, q, update_values);
+
+			fe_values.reinit(cell3d);
+			cell3d->get_dof_indices(dof_indices_3d);
+			Point<3> disp_3d;
+			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
+			{
+				disp_3d[fe_3d->system_to_component_index(i).first] += fe_values.shape_value(i,0)*solution_3d[dof_indices_3d[i]];
+			}
+
+			disp_3d -= (disp_3d*tangent)*tangent;
+			dx[local_dof_indices[vid]] += disp_3d[0];
+			dy[local_dof_indices[vid]] += disp_3d[1];
+			dz[local_dof_indices[vid]] += disp_3d[2];
+
+
 			dx[local_dof_indices[vid]] += tangent[0]*fiber_solution[local_dof_indices[vid]];
 			dy[local_dof_indices[vid]] += tangent[1]*fiber_solution[local_dof_indices[vid]];
 			dz[local_dof_indices[vid]] += tangent[2]*fiber_solution[local_dof_indices[vid]];

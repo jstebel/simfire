@@ -71,6 +71,17 @@ void CoupledProblem::setup_system()
 		unsigned int m_c = fibers->get_constraint_matrix_n_rows();
 
 		bsp.reinit(3,3);
+		// for simple stretch springs fibres
+//		bsp.block(0,0).reinit(n_3d, n_3d, 200);
+//		bsp.block(0,1).reinit(n_3d, n_1d, 0);
+//		bsp.block(0,2).reinit(n_3d, m_c, 80);
+//		bsp.block(1,0).reinit(n_1d, n_3d, 0);
+//		bsp.block(1,1).reinit(n_1d, n_1d, 2);
+//		bsp.block(1,2).reinit(n_1d, m_c, 8);
+//		bsp.block(2,0).reinit(m_c, n_3d, 64);
+//		bsp.block(2,1).reinit(m_c, n_1d, 2);
+//		bsp.block(2,2).reinit(m_c, m_c, 0);
+		// for Timoshenko beam
 		bsp.block(0,0).reinit(n_3d, n_3d, 200);
 		bsp.block(0,1).reinit(n_3d, n_1d, 0);
 		bsp.block(0,2).reinit(n_3d, m_c, 80);
@@ -78,7 +89,7 @@ void CoupledProblem::setup_system()
 		bsp.block(1,1).reinit(n_1d, n_1d, 2);
 		bsp.block(1,2).reinit(n_1d, m_c, 8);
 		bsp.block(2,0).reinit(m_c, n_3d, 64);
-		bsp.block(2,1).reinit(m_c, n_1d, 2);
+		bsp.block(2,1).reinit(m_c, n_1d, 6);
 		bsp.block(2,2).reinit(m_c, m_c, 0);
 		bsp.collect_sizes();
 
@@ -90,6 +101,19 @@ void CoupledProblem::setup_system()
 		bm.reinit(bsp);
 
 		brhs.reinit({n_3d, n_1d, m_c});
+	}
+	else
+	{
+		unsigned int n_3d = elastic->get_dof_handler().n_dofs();
+		bsp.reinit(1,1);
+		bsp.block(0,0).reinit(n_3d, n_3d, 200);
+		bsp.collect_sizes();
+
+		DoFTools::make_sparsity_pattern(elastic->get_dof_handler(), bsp.block(0,0));
+		bsp.compress();
+
+		bm.reinit(bsp);
+		brhs.reinit(1, n_3d);
 	}
 
 	elastic->setup_system();
@@ -104,7 +128,6 @@ void CoupledProblem::solve ()
   {
 	  umf.solve(bm, brhs);
 	  elastic->set_solution(brhs.block(0));
-	  fibers->set_solution(brhs.block(1));
   }
   else
   {
@@ -119,7 +142,7 @@ void CoupledProblem::run ()
 	elastic = new ElasticProblem<3>(parameters);
 
 	if (parameters.use_1d_fibers)
-		fibers = new FiberSubproblem(parameters.mesh1d_file);
+		fibers = new FiberTimoshenko(parameters.mesh1d_file);
 
 	setup_system();
 
@@ -127,18 +150,23 @@ void CoupledProblem::run ()
 
 	if (parameters.use_1d_fibers)
 	{
-		fibers->assemble_fiber_matrix(bm.block(1,1), parameters.Young_modulus_fiber, parameters.Fiber_volume_ratio);
+		fibers->assemble_fiber_matrix(bm.block(1,1),
+				brhs.block(1),
+				parameters.Young_modulus_fiber,
+				parameters.Poisson_ratio_fiber,
+				parameters.Fiber_volume_ratio);
 		fibers->assemble_constraint_mat(bm.block(0,2), bm.block(1,2), bm.block(2,0), bm.block(2,1));
 	}
 
 //	std::ofstream f("matrix.dat");
-//	bm.block(2,1).print_pattern(f);
+//	bm.block(1,1).print_formatted(f);
 //	f.close();
 
 	solve();
 
-	elastic->output_results ();
-	fibers->output_results(parameters.output_file_base, elastic->get_solution());
+	elastic->output_results();
+	if (parameters.use_1d_fibers)
+		fibers->output_results(parameters.output_file_base, brhs.block(0), brhs.block(1));
 }
 
 

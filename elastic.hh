@@ -76,9 +76,17 @@ namespace Composite_elasticity_problem
     const Vector<double> &get_solution() { return solution; }
 
   private:
+
+//    struct OutputVector
+//	{
+//    	Vector<double> vec;
+//    	std::string name;
+//    	DataOut_DoFData<DoFHandler<dim>,dim>::DataVectorType type;
+//	};
+
     Tensor<4,dim> elastic_tensor(unsigned int material_id) const;
     void allocate();
-    void output_stress() const;
+    void create_output_vectors() const;
     void output_ranges() const;
 
     Triangulation<dim>   triangulation;

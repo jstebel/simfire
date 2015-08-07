@@ -17,8 +17,14 @@ int main (int argc, char **argv)
     {
       dealii::deallog.depth_console (0);
 
+      std::cout << "============================================" << std::endl
+    		  	<< "comp_el - FE simulation of linear elasticity in fiber-reinforced composites" << std::endl
+				<< "============================================" << std::endl << std::endl;
+
       Composite_elasticity_problem::CoupledProblem problem(argv[1]);
       problem.run ();
+
+      std::cout << "Done." << std::endl;
     }
   catch (std::exception &exc)
     {

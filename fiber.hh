@@ -9,6 +9,8 @@
 #include <deal.II/fe/fe_q.h>
 #include <iostream>
 
+#include "parameters.hh"
+
 
 namespace Composite_elasticity_problem
 {
@@ -125,7 +127,7 @@ namespace Composite_elasticity_problem
   class FiberTimoshenko : public FiberSubproblem
   {
   public:
-	  FiberTimoshenko(const std::string &mesh_file);
+	  FiberTimoshenko(const Parameters::AllParameters &params);
 	  ~FiberTimoshenko() override;
 
 	  void attach_matrix_handler(const DoFHandler<3> &dh_) override;
@@ -151,6 +153,8 @@ namespace Composite_elasticity_problem
 	  DoFHandler<1,3> dh;
 	  const DoFHandler<3> *dh_3d;
 	  Quadrature<1> q_constraint;
+	  Vector<double> solution;
+	  Parameters::AllParameters parameters;
 
 	  std::vector<std::pair<DoFHandler<3>::active_cell_iterator,Point<3> > > node_to_cell;
 

@@ -1,5 +1,6 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
+#include <deal.II/base/function_parser.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/fe/fe_values.h>
@@ -652,18 +653,23 @@ void FiberLinear::output_results(const std::string &base_path, const Vector<doub
 
 
 
-FiberTimoshenko::FiberTimoshenko(const std::string &mesh_file)
+FiberTimoshenko::FiberTimoshenko(const Parameters::AllParameters &params)
 	: fe(FE_Q<1,3>(2), 3, FE_Q<1,3>(1), 3),
 	  dh(tri),
-	  q_constraint(QGauss<1>(2))
+	  q_constraint(
+//			  QGauss<1>(1)
+			  QGaussLobatto<1>(2)
+			  ),
+	  parameters(params)
 
 {
 	GridIn<1,3> grid_in;
 	grid_in.attach_triangulation(tri);
 
-	std::ifstream input_file(mesh_file);
-	Assert (input_file, ExcFileNotOpen(mesh_file.c_str()));
+	std::ifstream input_file(params.mesh1d_file);
+	Assert (input_file, ExcFileNotOpen(params.mesh1d_file.c_str()));
 
+	std::cout << "* Read mesh file '" << params.mesh1d_file.c_str() << "'" << std::endl;
 	grid_in.read_msh(input_file);
 
 	std::cout << "   Number of fiber active cells:       "
@@ -672,6 +678,7 @@ FiberTimoshenko::FiberTimoshenko(const std::string &mesh_file)
 
 
 	dh.distribute_dofs(fe);
+	solution.reinit (dh.n_dofs());
 }
 
 FiberTimoshenko::~FiberTimoshenko()
@@ -751,7 +758,7 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 	const FiniteElement<3> *fe_3d = &dh_3d->get_fe();
 	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
 	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
-	FEValues<1,3> fe_values1d(fe, q_constraint, update_values);
+	FEValues<1,3> fe_values1d(fe, q_constraint, update_values | update_JxW_values);
 
 	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
 			end_line = dh.end();
@@ -773,20 +780,19 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 			cell->get_dof_indices(dof_indices_3d);
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-//				if (fe_3d->system_to_component_index(i).first > 1) continue;
 				cm0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i],
-						fe_values3d.shape_value(i,0));
+						fe_values3d.shape_value(i,0)*fe_values1d.JxW(k));
 				cm0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first,
-						fe_values3d.shape_value(i,0));
+						fe_values3d.shape_value(i,0)*fe_values1d.JxW(k));
 			}
 
 			for (unsigned int i=0; i<fe.dofs_per_cell; i++)
 			{
-				// consider only displacements in 1d (ignore rotations)
+				// consider only displacements (ignore rotations)
 				if (fe.system_to_component_index(i).first < 3)
 				{
-					cm1.add(3*id+fe.system_to_component_index(i).first, dof_indices[i], -fe_values1d.shape_value(i,k));
-					cm1t.add(dof_indices[i], 3*id+fe.system_to_component_index(i).first, -fe_values1d.shape_value(i,k));
+					cm1.add(3*id+fe.system_to_component_index(i).first, dof_indices[i], -fe_values1d.shape_value(i,k)*fe_values1d.JxW(k));
+					cm1t.add(dof_indices[i], 3*id+fe.system_to_component_index(i).first, -fe_values1d.shape_value(i,k)*fe_values1d.JxW(k));
 				}
 			}
 		}
@@ -798,7 +804,7 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 
 void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, Vector<double> &fiber_rhs, double E_fiber, double nu_fiber, double fiber_volume)
 {
-	QGauss<1> quadrature_formula(2);
+	QGauss<1> quadrature_formula(8);
 	FEValues<1,3> fe_values (fe, quadrature_formula, update_values | update_gradients | update_JxW_values);
 	const unsigned int dofs_per_cell = fe.dofs_per_cell;
 	const unsigned int n_q_points = quadrature_formula.size();
@@ -806,8 +812,11 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 	std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 	Tensor<2,3> Pmat, Qmat, Imat, gu_i, gu_j, gth_i, gth_j;
 	Tensor<1,3> th_i, th_j, cross_th_i, cross_th_j;
-	double J = fiber_volume*fiber_volume/acos(-1)*0.5;
+//	double J = fiber_volume*fiber_volume/acos(-1)*0.5;
+	double J = fiber_volume*fiber_volume/acos(-1);
 	double G_fiber = 0.5 * E_fiber / (nu_fiber + 1);
+
+	printf("   Fiber parameters:\n    Young_modulus = %g\n    Shear_modulus = %g\n\n", E_fiber, G_fiber);
 
 	DoFHandler<1,3>::active_cell_iterator cell = dh.begin_active(),
 			end_cell = dh.end();
@@ -817,14 +826,14 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 		cell_matrix = 0;
 		Point<3> tangent = cell->vertex(1) - cell->vertex(0);
 		tangent /= tangent.norm();
-		Tensor<2,3> normal_proj;
 		for (unsigned int i=0; i<3; i++)
 			for (unsigned int j=0; j<3; j++)
 			{
 				Pmat[{i,j}] = tangent[i]*tangent[j];
-				Qmat[{i,j}] = (i==j?1:0) - tangent[i]*tangent[j];
+				Qmat[{i,j}] = (i==j?1.:0.) - tangent[i]*tangent[j];
 			}
-		Imat = fiber_volume*fiber_volume/acos(-1)*(0.5*Pmat + 0.25*Qmat);
+//		Imat = fiber_volume*fiber_volume/acos(-1)*(0.5*Pmat + 0.25*Qmat);
+		Imat = fiber_volume*fiber_volume/acos(-1)*0.5*Qmat;
 
 		for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
 		{
@@ -872,13 +881,29 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 		cell->get_dof_indices (local_dof_indices);
 		for (unsigned int i=0; i<dofs_per_cell; ++i)
 			for (unsigned int j=0; j<dofs_per_cell; ++j)
-				fiber_matrix.add (local_dof_indices[i], local_dof_indices[j], cell_matrix(i,j));
+				fiber_matrix.add (local_dof_indices[i], local_dof_indices[j], -cell_matrix(i,j));
 
 	}
 
-	dh.begin_active()->get_dof_indices(local_dof_indices);
-	for (unsigned int i=0; i<dofs_per_cell; i++)
-		fiber_matrix.set(local_dof_indices[i],local_dof_indices[i],1e12);
+	// apply boundary conditions
+	std::map<types::global_dof_index,double> boundary_values;
+	FEValuesExtractors::Vector displacements(0);
+	ComponentMask displacement_mask = fe.component_mask(displacements);
+	for (auto bc : parameters.bc)
+	{
+		FunctionParser<3> fp(3);
+		fp.initialize("x,y,z", bc.second, {});
+
+		VectorTools::interpolate_boundary_values (dh,
+				bc.first,
+				fp,
+				boundary_values,
+				displacement_mask);
+	}
+	MatrixTools::apply_boundary_values (boundary_values,
+			fiber_matrix,
+			solution,
+			fiber_rhs);
 }
 
 

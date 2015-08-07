@@ -61,9 +61,10 @@ parameters(params)
 	std::ifstream input_file(parameters.mesh_file);
 	Assert (input_file, ExcFileNotOpen(parameters.mesh_file.c_str()));
 
+	std::cout << "* Read mesh file '" << parameters.mesh_file << "'"<< std::endl;
 	grid_in.read_msh(input_file);
 
-	std::cout << "   Number of active cells:       "
+	std::cout << "   Number of active cells:             "
 			<< triangulation.n_active_cells()
 			<< std::endl;
 
@@ -162,8 +163,9 @@ void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, V
 	double Young_modulus_matrix_fiber = parameters.Fiber_volume_ratio*parameters.Young_modulus_fiber + (1.-parameters.Fiber_volume_ratio)*parameters.Young_modulus_matrix;
 	double Poisson_ratio_matrix_fiber = parameters.Fiber_volume_ratio*parameters.Poisson_ratio_fiber + (1.-parameters.Fiber_volume_ratio)*parameters.Poisson_ratio_matrix;
 
-	printf("Matrix parameters:\n  Young_modulus = %g\n  Poisson_ratio = %g\n\n", parameters.Young_modulus_matrix, parameters.Poisson_ratio_matrix);
-	printf("Reinforcement parameters:\n  Young_modulus = %g\n  Poisson_ratio = %g\n\n", Young_modulus_matrix_fiber, Poisson_ratio_matrix_fiber);
+	printf("   Matrix parameters:\n    Young_modulus = %g\n    Poisson_ratio = %g\n\n", parameters.Young_modulus_matrix, parameters.Poisson_ratio_matrix);
+	if (!parameters.use_1d_fibers)
+		printf("   Reinforcement parameters:\n    Young_modulus = %g\n    Poisson_ratio = %g\n\n", Young_modulus_matrix_fiber, Poisson_ratio_matrix_fiber);
 
 
 	// Now we can begin with the loop over all cells:
@@ -326,7 +328,7 @@ void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, V
 }
 
 template<int dim>
-void ElasticProblem<dim>::output_stress() const
+void ElasticProblem<dim>::create_output_vectors() const
 {
 	Vector<double> stress_vector, energy_vector, material_vector;
 	DoFHandler<dim> elem_handler (triangulation);
@@ -391,9 +393,9 @@ void ElasticProblem<dim>::output_stress() const
 	DataOut<dim> data_out;
 	data_out.attach_dof_handler (elem_handler);
 
-	data_out.add_data_vector (stress_vector, "vonMisesStress");
-	data_out.add_data_vector (energy_vector, "energy");
-	data_out.add_data_vector (material_vector, "material");
+	data_out.add_data_vector (stress_vector, "vonMisesStress", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
+	data_out.add_data_vector (energy_vector, "energy", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
+	data_out.add_data_vector (material_vector, "material", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
 	data_out.build_patches ();
 	data_out.write_vtk (output);
 
@@ -442,17 +444,17 @@ void ElasticProblem<dim>::output_ranges() const
 
 	delete[] norm2;
 
-	printf("Solution ranges:\n");
+	printf("   Solution ranges:\n");
 	for (int i=0; i<dim; i++)
-		printf(" component %d: [%g, %g]\n", i, min_val[i], max_val[i]);
-	printf(" norm: %g\n\n", sqrt(max_norm2));
+		printf("    component %d: [%g, %g]\n", i, min_val[i], max_val[i]);
+	printf("    norm: %g\n\n", sqrt(max_norm2));
 }
 
 
 template <int dim>
 void ElasticProblem<dim>::output_results () const
 {
-	std::string filename = parameters.output_file_base + "-displacement.vtk";
+	std::string filename = parameters.output_file_base + "-matrix.vtk";
 	std::ofstream output (filename.c_str());
 
 	DataOut<dim> data_out;
@@ -472,10 +474,57 @@ void ElasticProblem<dim>::output_results () const
 			solution_names,
 			DataOut_DoFData<DoFHandler<dim>,dim>::type_automatic,
 			interpretation);
+
+
+
+	// calculate additional output fields (energy, stress, material_id)
+	Vector<double> stress_vector(triangulation.n_cells()), energy_vector(triangulation.n_cells()), material_vector(triangulation.n_cells());
+	QGauss<dim>  quadrature_formula(1);
+	FEValues<dim> fe_values (fe, quadrature_formula,
+			update_values   | update_gradients |
+			update_quadrature_points | update_JxW_values);
+	std::vector<types::global_dof_index> local_dof_indices (fe.dofs_per_cell);
+	typename DoFHandler<dim>::active_cell_iterator cell = dof_handler.begin_active(),
+			endc = dof_handler.end();
+	for (unsigned int cell_index = 0; cell!=endc; ++cell_index, ++cell)
+	{
+		fe_values.reinit (cell);
+		cell->get_dof_indices (local_dof_indices);
+		Tensor<4,dim> el_tensor = elastic_tensor(cell->material_id());
+		Tensor<2,dim> sym_grad, stress;
+
+		for (unsigned int i=0; i<fe.dofs_per_cell; ++i)
+		{
+			const unsigned int component_i = fe.system_to_component_index(i).first;
+
+			for (unsigned int k=0; k<dim; k++)
+			{
+				sym_grad[component_i][k] += 0.5*fe_values.shape_grad(i,0)[k] * solution[local_dof_indices[i]];
+				sym_grad[k][component_i] += 0.5*fe_values.shape_grad(i,0)[k] * solution[local_dof_indices[i]];
+			}
+		}
+
+		for (unsigned int i=0; i<dim; i++)
+			for (unsigned int j=0; j<dim; j++)
+				for (unsigned int k=0; k<dim; k++)
+					for (unsigned int l=0; l<dim; l++)
+				stress[i][j] = el_tensor[i][j][k][l] * sym_grad[k][l];
+
+		stress_vector[cell_index] = sqrt(1.5*stress.norm_square() - 0.5*pow(trace(stress),2.));
+		energy_vector[cell_index] = scalar_product(stress, sym_grad);
+		material_vector[cell_index] = cell->material_id();
+	}
+	data_out.add_data_vector(stress_vector, "vonMisesStress", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
+	data_out.add_data_vector(energy_vector, "energy", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
+	data_out.add_data_vector(material_vector, "material", DataOut_DoFData<DoFHandler<dim>,dim>::type_cell_data);
+
+
+
+
 	data_out.build_patches ();
 	data_out.write_vtk (output);
 
-	output_stress();
+
 
 	output_ranges();
 }

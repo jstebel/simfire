@@ -10,7 +10,9 @@ SET(TARGET_SRC
   # You can specify additional files here!
   coupled.cc
   elastic.cc
-  fiber.cc
+  fiber1d.cc
+  fiber_linear.cc
+  fiber_timoshenko.cc
   parameters.cc
   
   main.cc

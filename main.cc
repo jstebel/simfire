@@ -19,7 +19,8 @@ int main (int argc, char **argv)
 
       std::cout << "============================================" << std::endl
     		  	<< "comp_el - FE simulation of linear elasticity in fiber-reinforced composites" << std::endl
-				<< "============================================" << std::endl << std::endl;
+				<< "============================================" << std::endl << std::endl
+				<< "* Read parameters from '" << argv[1] << "'" << std::endl;
 
       Composite_elasticity_problem::CoupledProblem problem(argv[1]);
       problem.run ();

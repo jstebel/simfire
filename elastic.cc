@@ -508,7 +508,7 @@ void ElasticProblem<dim>::output_results () const
 			for (unsigned int j=0; j<dim; j++)
 				for (unsigned int k=0; k<dim; k++)
 					for (unsigned int l=0; l<dim; l++)
-				stress[i][j] = el_tensor[i][j][k][l] * sym_grad[k][l];
+						stress[i][j] = el_tensor[i][j][k][l] * sym_grad[k][l];
 
 		stress_vector[cell_index] = sqrt(1.5*stress.norm_square() - 0.5*pow(trace(stress),2.));
 		energy_vector[cell_index] = scalar_product(stress, sym_grad);

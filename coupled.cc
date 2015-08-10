@@ -38,7 +38,7 @@
 
 #include "coupled.hh"
 #include "elastic.hh"
-#include "fiber.hh"
+#include "fiber_timoshenko.hh"
 
 
 using namespace Composite_elasticity_problem;

@@ -106,7 +106,7 @@ void CoupledProblem::setup_system()
 	{
 		unsigned int n_3d = elastic->get_dof_handler().n_dofs();
 		bsp.reinit(1,1);
-		bsp.block(0,0).reinit(n_3d, n_3d, 400);
+		bsp.block(0,0).reinit(n_3d, n_3d, elastic->get_mesh().max_adjacent_cells()*elastic->get_fe().dofs_per_cell);
 		bsp.collect_sizes();
 
 		DoFTools::make_sparsity_pattern(elastic->get_dof_handler(), bsp.block(0,0));

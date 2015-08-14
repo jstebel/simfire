@@ -48,6 +48,7 @@ namespace Composite_elasticity_problem
 	  Parameters::AllParameters parameters;
 
 	  std::vector<std::pair<DoFHandler<3>::active_cell_iterator,Point<3> > > node_to_cell;
+	  std::vector<DoFHandler<1,3>::active_cell_iterator> constrained_lines;
 
   };
 

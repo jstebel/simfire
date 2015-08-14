@@ -62,24 +62,34 @@ void FiberTimoshenko::attach_matrix_handler(const DoFHandler<3> &dh_)
 
 	MappingQ1<3> map;
 	FEValues<1,3> fe_values(fe, q_constraint, update_quadrature_points);
+	bool is_constrained;
 
 	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
 			end_line = dh.end();
 	for (unsigned int id=0; line!=end_line; ++line, ++id)
 	{
 		fe_values.reinit(line);
+		is_constrained = false;
 		for (unsigned int k=0; k<q_constraint.size(); k++)
 		{
-			auto p = GridTools::find_active_cell_around_point(map, *dh_3d, fe_values.quadrature_point(k));
-			p.second = GeometryInfo<3>::project_to_unit_cell(p.second);
-			node_to_cell.push_back(p);
+			try {
+				auto p = GridTools::find_active_cell_around_point(map, *dh_3d, fe_values.quadrature_point(k));
+				p.second = GeometryInfo<3>::project_to_unit_cell(p.second);
+				node_to_cell.push_back(p);
+				is_constrained = true;
+			}
+			catch (GridTools::ExcPointNotFound<3> e) {
+				node_to_cell.push_back(std::make_pair(dh_3d->end(), Point<3>(-1,-1,-1)));
+			}
 		}
+		if (is_constrained) constrained_lines.push_back(line);
 	}
 }
 
 unsigned int FiberTimoshenko::get_constraint_matrix_n_rows()
 {
-	return 3*tri.n_lines();
+//	return 3*tri.n_lines();
+	return 3*constrained_lines.size();
 }
 
 void FiberTimoshenko::set_sparsity_pattern(SparsityPattern &sp)
@@ -95,18 +105,20 @@ void FiberTimoshenko::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 	const unsigned int dofs_per_cell_3d = fe_3d->dofs_per_cell;
 	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
 
-	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
-			end_line = dh.end();
-	for (unsigned int id=0; line!=end_line; ++line, ++id)
+//	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
+//			end_line = dh.end();
+//	for (unsigned int id=0; line!=end_line; ++line, ++id)
+	unsigned int id = 0;
+	for (auto line : constrained_lines)
 	{
 		// allocate space for 3d dofs adajcent to line vertices
 		for (unsigned int k=0; k<q_constraint.size(); k++)
 		{
 			auto cell = node_to_cell[q_constraint.size()*id+k].first;
+			if (cell == dh_3d->end()) continue;
 			cell->get_dof_indices(dof_indices_3d);
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-//				if (fe_3d->system_to_component_index(i).first > 1) continue;
 				sp0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i]);
 				sp0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first);
 			}
@@ -123,6 +135,7 @@ void FiberTimoshenko::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 				sp1t.add(dof_indices[i], 3*id+fe.system_to_component_index(i).first);
 			}
 		}
+		id++;
 	}
 }
 
@@ -135,9 +148,11 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 	std::vector<types::global_dof_index> dof_indices_3d(dofs_per_cell_3d), dof_indices(fe.dofs_per_cell);
 	FEValues<1,3> fe_values1d(fe, q_constraint, update_values | update_JxW_values | update_quadrature_points);
 
-	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
-			end_line = dh.end();
-	for (unsigned int id=0; line!=end_line; ++line, ++id)
+//	DoFHandler<1,3>::active_cell_iterator line = dh.begin_active(),
+//			end_line = dh.end();
+//	for (unsigned int id=0; line!=end_line; ++line, ++id)
+	unsigned int id = 0;
+	for (auto line : constrained_lines)
 	{
 		line->get_dof_indices(dof_indices);
 
@@ -146,6 +161,8 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 		for (unsigned int k=0; k<q_constraint.size(); k++)
 		{
 			auto cell = node_to_cell[q_constraint.size()*id+k].first;
+			if (cell == dh_3d->end()) continue;
+
 			Quadrature<3> q(node_to_cell[q_constraint.size()*id+k].second);
 			FEValues<3> fe_values3d(*fe_3d, q, update_values | update_quadrature_points);
 
@@ -170,6 +187,7 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 				}
 			}
 		}
+		id++;
 	}
 }
 
@@ -208,6 +226,15 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 			}
 //		Imat = fiber_volume*fiber_volume/acos(-1)*(0.5*Pmat + 0.25*Qmat);
 		Imat = fiber_volume*fiber_volume/acos(-1)*0.5*Qmat;
+
+//		// Assembling rhs due to traction at boundary
+//		for (unsigned int face = 0; face < GeometryInfo<1>::faces_per_cell; ++face)
+//		{
+//			if (cell->at_boundary(face))
+//			{
+//				printf("found 1d boundary %d at cell %d\n", cell->face(face)->boundary_indicator(), cell->index());
+//			}
+//		}
 
 		for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
 		{
@@ -261,25 +288,26 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 
 	}
 
-//	// apply boundary conditions
-//	std::map<types::global_dof_index,double> boundary_values;
-//	FEValuesExtractors::Vector displacements(0);
-//	ComponentMask displacement_mask = fe.component_mask(displacements);
-//	for (auto bc : parameters.bc)
-//	{
-//		FunctionParser<3> fp(3);
-//		fp.initialize("x,y,z", bc.second, {});
-//
-//		VectorTools::interpolate_boundary_values (dh,
-//				bc.first,
-//				fp,
-//				boundary_values,
-//				displacement_mask);
-//	}
-//	MatrixTools::apply_boundary_values (boundary_values,
-//			fiber_matrix,
-//			solution,
-//			fiber_rhs);
+	// apply boundary conditions
+	std::map<types::global_dof_index,double> boundary_values;
+	FEValuesExtractors::Vector displacements(0);
+	ComponentMask displacement_mask({true,true,true,false,false,false});// = fe.component_mask(displacements);
+	for (auto bc : parameters.bc)
+	{
+		FunctionParser<3> fp(6);
+		fp.initialize("x,y,z", bc.second + ";0;0;0", {});
+
+		VectorTools::interpolate_boundary_values (dh,
+				bc.first,
+				fp,
+				boundary_values,
+				displacement_mask);
+	}
+	MatrixTools::apply_boundary_values (boundary_values,
+			fiber_matrix,
+			solution,
+			fiber_rhs,
+			false);
 }
 
 

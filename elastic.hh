@@ -71,18 +71,13 @@ namespace Composite_elasticity_problem
     void assemble_system(SparseMatrix<double> &system_matrix, Vector<double> &system_rhs);
     void output_results () const;
 
-    DoFHandler<3> &get_dof_handler() { return dof_handler; }
+    const DoFHandler<3> &get_dof_handler() const { return dof_handler; }
+    const Triangulation<3> &get_mesh() const { return triangulation; }
+    const FiniteElement<dim> &get_fe() const { return fe; }
     void set_solution(Vector<double> &sol) { solution = sol; }
     const Vector<double> &get_solution() { return solution; }
 
   private:
-
-//    struct OutputVector
-//	{
-//    	Vector<double> vec;
-//    	std::string name;
-//    	DataOut_DoFData<DoFHandler<dim>,dim>::DataVectorType type;
-//	};
 
     Tensor<4,dim> elastic_tensor(unsigned int material_id) const;
     void allocate();

@@ -1,4 +1,6 @@
 #include "parameters.hh"
+#include <sys/stat.h>
+#include <iostream>
 
 using namespace Composite_elasticity_problem;
 using namespace dealii;
@@ -8,6 +10,12 @@ using namespace Parameters;
 
 AllParameters::AllParameters(const std::string &input_file)
 {
+	struct stat buffer;
+	if (stat(input_file.c_str(), &buffer) != 0)
+	{
+		std::cerr << "Cannot open input file '" << input_file << "'!" << std::endl;
+		exit(1);
+	}
 	ParameterHandler prm;
 	declare_parameters(prm);
 	prm.read_input(input_file);

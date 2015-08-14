@@ -324,7 +324,8 @@ void ElasticProblem<dim>::assemble_system(SparseMatrix<double> &system_matrix, V
 	MatrixTools::apply_boundary_values (boundary_values,
 			system_matrix,
 			solution,
-			system_rhs);
+			system_rhs,
+			false);
 }
 
 template<int dim>

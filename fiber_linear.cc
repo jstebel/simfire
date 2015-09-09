@@ -131,7 +131,7 @@ void FiberLinear::assemble_constraint_mat(SparseMatrix<double> &cm0t, SparseMatr
 	for (unsigned int id=0; line!=end_line; ++line, ++id)
 	{
 		line->get_dof_indices(dof_indices);
-		Point<3> tangent = line->vertex(1)-line->vertex(0);
+		Point<3> tangent(line->vertex(1)-line->vertex(0));
 		tangent /= tangent.norm();
 
 		fe_values1d.reinit(line);
@@ -188,7 +188,7 @@ void FiberLinear::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, Vect
 		fe_values.reinit(cell);
 		cell_matrix = 0;
 		cell_rhs = 0;
-		Point<3> tangent = cell->vertex(1) - cell->vertex(0);
+		Point<3> tangent(cell->vertex(1) - cell->vertex(0));
 		tangent /= tangent.norm();
 		Tensor<2,3> normal_proj;
 		for (unsigned int i=0; i<3; i++)

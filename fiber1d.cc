@@ -127,7 +127,7 @@ void Fiber1D::assemble_constraint_mat(SparseMatrix<double> &cm0t, SparseMatrix<d
 	for (unsigned int id=0; line!=end_line; ++line, ++id)
 	{
 		line->get_dof_indices(dof_indices);
-		Point<3> tangent = line->vertex(1)-line->vertex(0);
+		Point<3> tangent(line->vertex(1)-line->vertex(0));
 		tangent /= tangent.norm();
 
 		for (unsigned int vid=0; vid<2; vid++)
@@ -235,7 +235,7 @@ void Fiber1D::output_results(const std::string &base_path, const Vector<double> 
 	for (; cell!=end_cell; ++cell)
 	{
 		cell->get_dof_indices (local_dof_indices);
-		Point<3> tangent = cell->vertex(1) - cell->vertex(0);
+		Point<3> tangent(cell->vertex(1) - cell->vertex(0));
 		tangent /= tangent.norm();
 		for (int vid=0; vid<2; vid++)
 		{

@@ -216,7 +216,7 @@ void FiberTimoshenko::assemble_fiber_matrix(SparseMatrix<double> &fiber_matrix, 
 	{
 		fe_values.reinit(cell);
 		cell_matrix = 0;
-		Point<3> tangent = cell->vertex(1) - cell->vertex(0);
+		Point<3> tangent(cell->vertex(1) - cell->vertex(0));
 		tangent /= tangent.norm();
 		for (unsigned int i=0; i<3; i++)
 			for (unsigned int j=0; j<3; j++)

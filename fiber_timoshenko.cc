@@ -89,7 +89,7 @@ void FiberTimoshenko::attach_matrix_handler(const DoFHandler<3> &dh_)
 unsigned int FiberTimoshenko::get_constraint_matrix_n_rows()
 {
 //	return 3*tri.n_lines();
-	return 3*constrained_lines.size();
+	return 6*constrained_lines.size();
 }
 
 void FiberTimoshenko::set_sparsity_pattern(SparsityPattern &sp)
@@ -119,8 +119,15 @@ void FiberTimoshenko::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 			cell->get_dof_indices(dof_indices_3d);
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
-				sp0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i]);
-				sp0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first);
+			        const unsigned int ind = fe_3d->system_to_component_index(i).first;
+				sp0.add(6*id+ind, dof_indices_3d[i]);
+				sp0t.add(dof_indices_3d[i], 6*id+ind);
+				
+				sp0.add(6*id+3+(ind+1)%3, dof_indices_3d[i]);
+				sp0t.add(dof_indices_3d[i], 6*id+3+(ind+1)%3);
+				
+				sp0.add(6*id+3+(ind+2)%3, dof_indices_3d[i]);
+				sp0t.add(dof_indices_3d[i], 6*id+3+(ind+2)%3);
 			}
 		}
 
@@ -129,10 +136,10 @@ void FiberTimoshenko::set_constraint_matrix_sparsity_pattern(SparsityPattern &sp
 		for (unsigned int i=0; i<fe.dofs_per_cell; i++)
 		{
 			// consider only displacements in 1d (ignore rotations)
-			if (fe.system_to_component_index(i).first < 3)
+//			if (fe.system_to_component_index(i).first < 3)
 			{
-				sp1.add(3*id+fe.system_to_component_index(i).first,   dof_indices[i]);
-				sp1t.add(dof_indices[i], 3*id+fe.system_to_component_index(i).first);
+				sp1.add(6*id+fe.system_to_component_index(i).first,   dof_indices[i]);
+				sp1t.add(dof_indices[i], 6*id+fe.system_to_component_index(i).first);
 			}
 		}
 		id++;
@@ -164,7 +171,7 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 			if (cell == dh_3d->end()) continue;
 
 			Quadrature<3> q(node_to_cell[q_constraint.size()*id+k].second);
-			FEValues<3> fe_values3d(*fe_3d, q, update_values | update_quadrature_points);
+			FEValues<3> fe_values3d(*fe_3d, q, update_values | update_gradients | update_quadrature_points);
 
 			fe_values3d.reinit(cell);
 
@@ -172,18 +179,28 @@ void FiberTimoshenko::assemble_constraint_mat(SparseMatrix<double> &cm0t, Sparse
 			for (unsigned int i=0; i<dofs_per_cell_3d; i++)
 			{
 				double value = fe_values3d.shape_value(i,0)*fe_values1d.JxW(k);
-				cm0.add(3*id+fe_3d->system_to_component_index(i).first, dof_indices_3d[i], value);
-				cm0t.add(dof_indices_3d[i], 3*id+fe_3d->system_to_component_index(i).first, value);
+				Point<3> rot(0.5*fe_values1d.JxW(k)*(fe_values3d.shape_grad_component(i,0,1)[2]-fe_values3d.shape_grad_component(i,0,2)[1]),
+				    0.5*fe_values1d.JxW(k)*(fe_values3d.shape_grad_component(i,0,2)[0]-fe_values3d.shape_grad_component(i,0,0)[2]),
+				    0.5*fe_values1d.JxW(k)*(fe_values3d.shape_grad_component(i,0,0)[1]-fe_values3d.shape_grad_component(i,0,1)[0]));
+				unsigned int ind = fe_3d->system_to_component_index(i).first;
+				cm0.add(6*id+ind, dof_indices_3d[i], value);
+				cm0t.add(dof_indices_3d[i], 6*id+ind, value);
+				
+				cm0.add(6*id+3+(ind+1)%3, dof_indices_3d[i], rot[(ind+1)%3]);
+				cm0t.add(dof_indices_3d[i], 6*id+3+(ind+1)%3, rot[(ind+1)%3]);
+				
+				cm0.add(6*id+3+(ind+2)%3, dof_indices_3d[i], rot[(ind+2)%3]);
+				cm0t.add(dof_indices_3d[i], 6*id+3+(ind+2)%3, rot[(ind+2)%3]);
 			}
 
 			for (unsigned int i=0; i<fe.dofs_per_cell; i++)
 			{
 				// consider only displacements (ignore rotations)
-				if (fe.system_to_component_index(i).first < 3)
+//				if (fe.system_to_component_index(i).first < 3)
 				{
 					double value = -fe_values1d.shape_value(i,k)*fe_values1d.JxW(k);
-					cm1.add(3*id+fe.system_to_component_index(i).first, dof_indices[i], value);
-					cm1t.add(dof_indices[i], 3*id+fe.system_to_component_index(i).first, value);
+					cm1.add(6*id+fe.system_to_component_index(i).first, dof_indices[i], value);
+					cm1t.add(dof_indices[i], 6*id+fe.system_to_component_index(i).first, value);
 				}
 			}
 		}
